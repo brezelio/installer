@@ -1,0 +1,30 @@
+{
+  "name": "installer",
+  "version": "1.0.0",
+  "description": "Installer for Brezel",
+  "main": "dist/index.js",
+  "bin": {
+    "brezel-installer": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs --clean --minify",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@types/fs-extra": "^11.0.4",
+    "@types/node": "^25.2.2",
+    "@types/prompts": "^2.4.9",
+    "chalk": "^5.6.2",
+    "commander": "^14.0.3",
+    "execa": "^9.6.1",
+    "ora": "^9.3.0",
+    "prompts": "^2.4.2",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3"
+  }
+}
