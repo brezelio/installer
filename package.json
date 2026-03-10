@@ -1,6 +1,6 @@
 {
   "name": "@brezel/installer",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Installer for Brezel",
   "main": "dist/index.js",
   "bin": {
@@ -11,7 +11,11 @@
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts"
   },
-  "keywords": ["brezel", "installer", "cli"],
+  "keywords": [
+    "brezel",
+    "installer",
+    "cli"
+  ],
   "author": "flynamic",
   "license": "MIT",
   "repository": {
