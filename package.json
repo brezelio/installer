@@ -19,6 +19,9 @@
     "url": "git+https://github.com/brezelio/installer.git"
   },
   "type": "commonjs",
+  "files": [
+    "dist"
+  ],
   "devDependencies": {
     "@semantic-release/commit-analyzer": "^13.0.1",
     "@semantic-release/git": "^10.0.1",
