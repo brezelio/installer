@@ -7,7 +7,7 @@ Official installer for Brezel ERP. This tool automates the setup of Brezel insta
 Run this command in your terminal to start the installation:
 
 ```bash
-curl -sL https://brezel.io/install.sh | bash
+curl -sL https://brezel.io/install.sh | sh
 ```
 
 ## Features
