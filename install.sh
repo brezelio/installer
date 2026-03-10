@@ -32,10 +32,11 @@ fi
 
 if [ -f "./dist/index.js" ]; then
     echo "🚀 Launching installer..."
-    # Pass all arguments to the TS installer
-    node ./dist/index.js "$@"
+    # Redirect stdin from /dev/tty to allow interactive prompts when piped
+    node ./dist/index.js "$@" < /dev/tty
 else
     # Fallback to npx if no local build is found
     echo "🚀 Fetching and launching latest installer..."
-    npx -y @brezel/installer@latest "$@"
+    npx -y @brezel/brezel-installer@latest "$@" < /dev/tty
 fi
+
