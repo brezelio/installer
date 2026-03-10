@@ -1,6 +1,6 @@
 {
   "name": "@brezel/installer",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Installer for Brezel",
   "main": "dist/index.js",
   "bin": {
