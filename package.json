@@ -1,6 +1,6 @@
 {
   "name": "@brezel/installer",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Installer for Brezel",
   "main": "dist/index.js",
   "bin": {
@@ -12,10 +12,19 @@
     "dev": "ts-node src/index.ts"
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "author": "flynamic",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/brezelio/installer.git"
+  },
   "type": "commonjs",
   "devDependencies": {
+    "@semantic-release/commit-analyzer": "^13.0.1",
+    "@semantic-release/git": "^10.0.1",
+    "@semantic-release/github": "^12.0.6",
+    "@semantic-release/npm": "^13.1.5",
+    "@semantic-release/release-notes-generator": "^14.1.0",
     "@types/fs-extra": "^11.0.4",
     "@types/node": "^25.2.2",
     "@types/prompts": "^2.4.9",
@@ -24,7 +33,11 @@
     "execa": "^9.6.1",
     "ora": "^9.3.0",
     "prompts": "^2.4.2",
+    "semantic-release": "^25.0.3",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
