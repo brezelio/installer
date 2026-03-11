@@ -9,19 +9,28 @@ import ora from 'ora';
 
 const program = new Command();
 
+function stripAnsi(str: string) {
+  // eslint-disable-next-line no-control-regex
+  return str.replace(/\u001b\[[0-9;]*m/g, '');
+}
+
+function resetTerminal() {
+  process.stdout.write('\u001b[0m');
+}
+
 async function runTask(title: string, cmd: string, args: string[], options: any) {
   const spinner = ora(title).start();
   const subprocess = execa(cmd, args, { ...options, all: true });
 
   subprocess.stdout?.on('data', (data) => {
-    const line = data.toString().trim().split('\n').pop();
+    const line = stripAnsi(data.toString().trim().split('\n').pop() || '');
     if (line) {
       spinner.text = `${title} ${chalk.dim(`(${line.substring(0, 60).trim()}...)`)}`;
     }
   });
 
   subprocess.stderr?.on('data', (data) => {
-    const line = data.toString().trim().split('\n').pop();
+    const line = stripAnsi(data.toString().trim().split('\n').pop() || '');
     if (line) {
       spinner.text = `${title} ${chalk.dim(`(${line.substring(0, 60).trim()}...)`)}`;
     }
@@ -29,12 +38,54 @@ async function runTask(title: string, cmd: string, args: string[], options: any)
 
   try {
     await subprocess;
+    resetTerminal();
     spinner.succeed(title);
   } catch (e: any) {
+    resetTerminal();
     spinner.fail(`${title} failed.`);
     if (e.all) console.error(chalk.red(e.all));
     process.exit(1);
   }
+}
+
+function writeEnv(rootDir: string, updates: Record<string, string>) {
+  const envPath = path.join(rootDir, '.env');
+  const envExamplePath = path.join(rootDir, '.env.example');
+
+  let content = '';
+  if (fs.existsSync(envPath)) {
+    content = fs.readFileSync(envPath, 'utf-8');
+  } else if (fs.existsSync(envExamplePath)) {
+    content = fs.readFileSync(envExamplePath, 'utf-8');
+  }
+
+  for (const [key, value] of Object.entries(updates)) {
+    const regex = new RegExp(`^${key}=.*`, 'm');
+    if (regex.test(content)) {
+      content = content.replace(regex, `${key}=${value}`);
+    } else {
+      content += `\n${key}=${value}`;
+    }
+  }
+
+  fs.writeFileSync(envPath, content.trim() + '\n');
+}
+
+function parseEnv(rootDir: string): Record<string, string> {
+    const envPath = path.join(rootDir, '.env');
+    if (!fs.existsSync(envPath)) return {};
+    
+    const content = fs.readFileSync(envPath, 'utf-8');
+    const lines = content.split('\n');
+    const result: Record<string, string> = {};
+    
+    for (const line of lines) {
+        const match = line.match(/^([^=#]+)=(.*)$/);
+        if (match) {
+            result[match[1].trim()] = match[2].trim();
+        }
+    }
+    return result;
 }
 
 program
@@ -62,6 +113,22 @@ const REPO_SKELETON = 'https://github.com/brezelio/brezel.git';
 program.action(async (options) => {
   console.log(chalk.bold.blue('\n🥨 Welcome to the Brezel Installer!\n'));
 
+  const initialRootDir = path.resolve(options.dir || './brezel');
+  let isExistingBrezel = false;
+  let existingEnv: Record<string, string> = {};
+
+  // Detect existing Brezel installation early
+  if (fs.existsSync(path.join(initialRootDir, 'composer.json')) && fs.existsSync(path.join(initialRootDir, 'systems'))) {
+    try {
+        const composerJson = JSON.parse(fs.readFileSync(path.join(initialRootDir, 'composer.json'), 'utf-8'));
+        if (composerJson.require && composerJson.require['brezel/api']) {
+            isExistingBrezel = true;
+            existingEnv = parseEnv(initialRootDir);
+            ora('Existing Brezel installation detected. Entering update mode.').info();
+        }
+    } catch (e) {}
+  }
+
   const checkPhp = async (phpPath: string) => {
     try {
         const { stdout } = await execa(phpPath, ['-r', 'echo PHP_VERSION;']);
@@ -85,7 +152,7 @@ program.action(async (options) => {
   // 1. Prerequisites Check
   const spinner = ora('Checking prerequisites...').start();
   const checks: any = {};
-  
+
   try {
     // Critical Deps
     for (const dep of ['git', 'node', 'npm']) {
@@ -144,8 +211,8 @@ program.action(async (options) => {
         name: 'mode',
         message: 'How do you want to install Brezel?',
         choices: [
-          { 
-            title: `Native (Bare metal) ${!checks.phpValid && checks.php ? chalk.yellow('(PHP 8.3+ required, current: ' + checks.php + ')') : (!checks.php ? chalk.red('(PHP not found)') : '')}`, 
+          {
+            title: `Native (Bare metal) ${!checks.phpValid && checks.php ? chalk.yellow('(PHP 8.3+ required, current: ' + checks.php + ')') : (!checks.php ? chalk.red('(PHP not found)') : '')}`,
             value: 'native',
             disabled: false
           },
@@ -153,8 +220,8 @@ program.action(async (options) => {
             title: `Valet (macOS Magic) ${chalk.dim('- handles domain mapping automatically')}`,
             value: 'valet'
           }] : []),
-          { 
-            title: `Docker (Containerized) ${!checks.docker ? chalk.red('(Docker required)') : ''}`, 
+          {
+            title: `Docker (Containerized) ${!checks.docker ? chalk.red('(Docker required)') : ''}`,
             value: 'docker',
             disabled: !checks.docker
           }
@@ -174,7 +241,7 @@ program.action(async (options) => {
         }
       },
       {
-        type: 'select',
+        type: isExistingBrezel ? null : 'select',
         name: 'sourceMode',
         message: 'Source control mode:',
         choices: [
@@ -184,7 +251,7 @@ program.action(async (options) => {
         initial: options.sourceMode === 'fork' ? 1 : 0
       },
       {
-        type: (prev) => prev === 'fork' ? 'text' : null,
+        type: (prev) => (!isExistingBrezel && prev === 'fork') ? 'text' : null,
         name: 'forkUrl',
         message: 'Enter your fork URL (git@...):',
         validate: (v) => v.length > 0 ? true : 'Fork URL is required'
@@ -206,19 +273,23 @@ program.action(async (options) => {
         type: 'text',
         name: 'system',
         message: 'System name:',
-        initial: options.system
+        initial: existingEnv['VITE_APP_SYSTEM'] || existingEnv['APP_SYSTEM'] || options.system
       },
       {
         type: 'text',
         name: 'url',
         message: 'API URL:',
-        initial: (prev: any, values: any) => options.url !== 'http://brezel-api.test' ? options.url : `http://${values.system}.test`
+        initial: (prev: any, values: any) => {
+            if (existingEnv['APP_URL']) return existingEnv['APP_URL'];
+            return options.url !== 'http://brezel-api.test' ? options.url : `http://${values.system}.test`;
+        }
       },
       {
         type: 'text',
         name: 'spaUrl',
         message: 'SPA URL:',
         initial: (prev: any, values: any) => {
+            if (existingEnv['VITE_APP_URL']) return existingEnv['VITE_APP_URL'];
             if (options.spaUrl !== 'http://localhost:5173') return options.spaUrl;
             if (values.mode === 'valet') return `http://${values.system}.test:5173`;
             return `http://localhost:5173`;
@@ -234,7 +305,7 @@ program.action(async (options) => {
           { title: 'SSL (Certbot)', value: 'ssl' },
           { title: 'Cron jobs', value: 'cron' }
         ],
-        initial: (options.components && typeof options.components === 'string') 
+        initial: (options.components && typeof options.components === 'string')
                     ? options.components.split(',').map(c => ['mariadb', 'nginx', 'ssl', 'cron'].indexOf(c))
                     : undefined
       },
@@ -242,40 +313,42 @@ program.action(async (options) => {
         type: 'text',
         name: 'dbHost',
         message: 'Database Host',
-        initial: options.dbHost
+        initial: existingEnv['TENANCY_HOST'] || options.dbHost
       },
       {
         type: 'text',
         name: 'dbPort',
         message: 'Database Port',
-        initial: options.dbPort
+        initial: existingEnv['TENANCY_PORT'] || options.dbPort
       },
       {
         type: 'text',
         name: 'dbName',
         message: 'Database Name',
-        initial: options.dbName
+        initial: existingEnv['TENANCY_DATABASE'] || options.dbName
       },
       {
         type: 'text',
         name: 'dbUser',
         message: 'Database User',
-        initial: options.dbUser
+        initial: existingEnv['TENANCY_USERNAME'] || options.dbUser
       },
       {
         type: 'password',
         name: 'dbPassword',
         message: 'Database Password',
-        initial: options.dbPassword
+        initial: existingEnv['TENANCY_PASSWORD'] || options.dbPassword
       }
     ]);
 
     responses = { ...options, ...interactiveResponses };
   } else {
-      // In non-interactive mode, parse components string into array
-      if (typeof responses.components === 'string') {
-          responses.components = responses.components.split(',').filter(Boolean);
-      }
+    responses = { ...options };
+
+    // In non-interactive mode, parse components string into array
+    if (typeof responses.components === 'string') {
+        responses.components = responses.components.split(',').filter(Boolean);
+    }
   }
 
   if (!responses.dir) process.exit(1);
@@ -299,8 +372,22 @@ program.action(async (options) => {
   }
 
   const rootDir = path.resolve(responses.dir);
-  
-  if (!fs.existsSync(rootDir)) {
+  let finalIsExistingBrezel = isExistingBrezel;
+
+  // Re-detect if path changed during prompt
+  if (rootDir !== initialRootDir) {
+      if (fs.existsSync(path.join(rootDir, 'composer.json')) && fs.existsSync(path.join(rootDir, 'systems'))) {
+          try {
+              const composerJson = JSON.parse(fs.readFileSync(path.join(rootDir, 'composer.json'), 'utf-8'));
+              if (composerJson.require && composerJson.require['brezel/api']) {
+                  finalIsExistingBrezel = true;
+                  ora('Existing Brezel installation detected. Skipping clone.').info();
+              }
+          } catch (e) {}
+      }
+  }
+
+  if (!finalIsExistingBrezel && !fs.existsSync(rootDir)) {
     const s = ora(`Cloning Brezel skeleton (${responses.sourceMode === 'clone' ? 'no history' : 'fork'})...`).start();
     try {
       const cloneUrl = responses.sourceMode === 'fork' ? responses.forkUrl : REPO_SKELETON;
@@ -309,16 +396,16 @@ program.action(async (options) => {
           cloneArgs.push('--depth', '1');
       }
       cloneArgs.push(cloneUrl, rootDir);
-      
+
       await execa('git', cloneArgs);
-      
+
       if (responses.sourceMode === 'clone') {
           fs.rmSync(path.join(rootDir, '.git'), { recursive: true, force: true });
           await execa('git', ['init'], { cwd: rootDir });
           await execa('git', ['add', '.'], { cwd: rootDir });
           await execa('git', ['commit', '-m', 'Initial commit from Brezel Installer'], { cwd: rootDir });
       }
-      
+
       s.succeed('Brezel skeleton cloned.');
     } catch (e) {
       s.fail('Failed to clone repository.');
@@ -370,27 +457,15 @@ program.action(async (options) => {
   if (responses.mode === 'docker') {
       console.log(chalk.bold.cyan('\n🐳 Setting up Docker environment...'));
 
-      const envExamplePath = path.join(rootDir, '.env.example');
-      const envPath = path.join(rootDir, '.env');
-      
-      if (fs.existsSync(envExamplePath)) {
-        let envContent = fs.readFileSync(envExamplePath, 'utf-8');
-        
-        envContent = envContent.replace(/APP_URL=.*/, `APP_URL=${responses.url}`);
-        envContent = envContent.replace(/VITE_APP_API_URL=.*/, `VITE_APP_API_URL=${responses.url}`);
-        envContent = envContent.replace(/VITE_APP_SYSTEM=.*/, `VITE_APP_SYSTEM=${responses.system}`);
-        envContent = envContent.replace(/TENANCY_HOST=.*/, `TENANCY_HOST=db`);
-        envContent = envContent.replace(/TENANCY_PASSWORD=.*/, `TENANCY_PASSWORD=password`); 
-        
-        if (!envContent.includes('APP_SYSTEM=')) {
-            envContent += `\nAPP_SYSTEM=${responses.system}\n`;
-        } else {
-            envContent = envContent.replace(/APP_SYSTEM=.*/, `APP_SYSTEM=${responses.system}`);
-        }
-
-        fs.writeFileSync(envPath, envContent);
-        ora('Configured .env for Docker').succeed();
-      }
+      writeEnv(rootDir, {
+        APP_URL: responses.url,
+        VITE_APP_API_URL: responses.url,
+        VITE_APP_SYSTEM: responses.system,
+        TENANCY_HOST: 'db',
+        TENANCY_PASSWORD: 'password',
+        APP_SYSTEM: responses.system
+      });
+      ora('Configured .env for Docker').succeed();
 
       await runTask('Building and starting Docker containers', 'docker', ['compose', 'up', '-d', '--build'], {
           cwd: rootDir,
@@ -402,33 +477,33 @@ program.action(async (options) => {
               APP_URL: responses.url
           }
       });
-      
+
       console.log(chalk.bold.cyan('\n🥐 Initializing Brezel in Docker...'));
           const initSpinner = ora('Waiting for database...').start();
-          
+
           await new Promise(r => setTimeout(r, 10000));
-          
+
           const runDockerCmd = async (cmd: string[]) => {
               await execa('docker', ['compose', 'exec', 'api', ...cmd], { cwd: rootDir, stdio: 'inherit' });
           };
-          
+
           try {
               initSpinner.text = 'Running bakery init...';
               await runDockerCmd(['php', 'bakery', 'init']);
-              
+
               console.log(chalk.dim(`Creating system "${responses.system}"...`));
               await runDockerCmd(['php', 'bakery', 'system', 'create', responses.system]);
-              
+
               console.log(chalk.dim('Applying system config...'));
               await runDockerCmd(['php', 'bakery', 'apply']);
-              
+
               initSpinner.succeed('Brezel initialized in Docker.');
-              
+
           } catch (e) {
               initSpinner.fail('Initialization in Docker failed.');
               console.error(e);
           }
-      
+
       console.log(chalk.bold.green('\n✅ Docker Installation complete!'));
       console.log(chalk.white(`
 Services are running:
@@ -439,14 +514,14 @@ To stop:
   cd ${rootDir}
   docker compose down
 `));
-      
+
       return;
   }
 
   // 3. Install Dependencies (Native/Valet Mode)
   if (isNative) {
     console.log(chalk.bold.cyan('\n📦 Installing Dependencies...'));
-    
+
     await execa('composer', ['config', 'gitlab-token.gitlab.kiwis-and-brownies.de', responses.gitlabToken], { cwd: rootDir });
 
     await runTask('Installing PHP dependencies (Composer)', 'composer', ['install', '--no-interaction'], { cwd: rootDir });
@@ -460,27 +535,20 @@ To stop:
 
     await runTask('Installing Node dependencies (npm)', 'npm', ['install'], { cwd: rootDir });
 
-    const envExamplePath = path.join(rootDir, '.env.example');
-    const envPath = path.join(rootDir, '.env');
-    if (fs.existsSync(envExamplePath)) {
-      let envContent = fs.readFileSync(envExamplePath, 'utf-8');
-      
-      envContent = envContent.replace(/APP_URL=.*/, `APP_URL=${responses.url}`);
-      envContent = envContent.replace(/VITE_APP_API_URL=.*/, `VITE_APP_API_URL=${responses.url}`);
-      envContent = envContent.replace(/VITE_APP_SYSTEM=.*/, `VITE_APP_SYSTEM=${responses.system}`);
-      
-      envContent = envContent.replace(/TENANCY_HOST=.*/, `TENANCY_HOST=${responses.dbHost}`);
-      envContent = envContent.replace(/TENANCY_PORT=.*/, `TENANCY_PORT=${responses.dbPort}`);
-      envContent = envContent.replace(/TENANCY_DATABASE=.*/, `TENANCY_DATABASE=${responses.dbName}`);
-      envContent = envContent.replace(/TENANCY_USERNAME=.*/, `TENANCY_USERNAME=${responses.dbUser}`);
-      envContent = envContent.replace(/TENANCY_PASSWORD=.*/, `TENANCY_PASSWORD=${responses.dbPassword}`);
-      
-      fs.writeFileSync(envPath, envContent);
-      ora('Configured .env').succeed();
-    }
+    writeEnv(rootDir, {
+      APP_URL: responses.url,
+      VITE_APP_API_URL: responses.url,
+      VITE_APP_SYSTEM: responses.system,
+      TENANCY_HOST: responses.dbHost,
+      TENANCY_PORT: responses.dbPort,
+      TENANCY_DATABASE: responses.dbName,
+      TENANCY_USERNAME: responses.dbUser,
+      TENANCY_PASSWORD: responses.dbPassword
+    });
+    ora('Configured .env').succeed();
 
     console.log(chalk.bold.cyan('\n🥐 Initializing Brezel...'));
-    
+
     const runBakery = async (args: string[]) => {
         await execa(responses.phpPath, ['bakery', ...args], { cwd: rootDir, stdio: 'inherit' });
     };
@@ -496,7 +564,7 @@ To stop:
         console.error(chalk.red('Initialization failed.'));
         console.error(e);
     }
-    
+
     await runTask('Building SPA', 'npm', ['run', 'build'], { cwd: rootDir });
 
     // Valet specific setup
@@ -505,7 +573,7 @@ To stop:
         try {
             await execa('valet', ['link', responses.system], { cwd: rootDir });
             ora(`Linked ${responses.system}.test to Valet.`).succeed();
-            
+
             // Try to secure it
             if (responses.url.startsWith('https://')) {
                 await execa('valet', ['secure', responses.system], { cwd: rootDir });
@@ -517,12 +585,9 @@ To stop:
     }
   }
 
-  console.log(chalk.bold.cyan('\n📦 Installing Export Services...'));
-  try {
-    await execa('npx', ['@kibro/export-installer@latest'], { stdio: 'inherit' });
-  } catch (e) {
-    console.warn(chalk.yellow('Export services installer finished with warning or error.'));
-  }
+  console.log(chalk.bold.cyan('\n📦 Export Services'));
+  console.log(chalk.white('To install export services (PDF, Excel, etc.), run:'));
+  console.log(chalk.dim('  npx @kibro/export-installer@latest\n'));
 
   console.log(chalk.bold.green('\n✅ Installation complete!'));
   console.log(chalk.white(`

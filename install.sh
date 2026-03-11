@@ -37,6 +37,6 @@ if [ -f "./dist/index.js" ]; then
 else
     # Fallback to npx if no local build is found
     echo "🚀 Fetching and launching latest installer..."
-    npx -y @brezel/brezel-installer@latest "$@" < /dev/tty
+    npx -y @brezel/installer@latest "$@" < /dev/tty
 fi
 
