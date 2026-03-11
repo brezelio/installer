@@ -16,6 +16,15 @@ if ! command -v node >/dev/null 2>&1; then
     exit 1
 fi
 
+# Check Node.js version
+NODE_MAJOR=$(node -v | cut -d 'v' -f 2 | cut -d '.' -f 1)
+if [ "$NODE_MAJOR" -lt 18 ]; then
+    echo "${RED}❌ Node.js 18 or higher is required.${NC}"
+    echo "Current version: $(node -v)"
+    echo "Please upgrade Node.js and try again."
+    exit 1
+fi
+
 # Check for npm
 if ! command -v npm >/dev/null 2>&1; then
     echo "${RED}❌ npm is required but not found.${NC}"
@@ -26,8 +35,14 @@ fi
 # For development/demo purposes in this repo:
 if [ -f "package.json" ] && [ -d "src" ]; then
     echo "📦 Preparing installer..."
-    npm install --silent
-    npm run build --silent
+    if ! npm install --silent; then
+        echo "${RED}❌ Failed to install installer dependencies.${NC}"
+        exit 1
+    fi
+    if ! npm run build --silent; then
+        echo "${RED}❌ Failed to build installer.${NC}"
+        exit 1
+    fi
 fi
 
 if [ -f "./dist/index.js" ]; then
